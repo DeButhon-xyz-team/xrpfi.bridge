@@ -4,10 +4,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const axelarjs_sdk_1 = require("@axelar-network/axelarjs-sdk");
+const ethers_1 = require("ethers");
 const config_1 = __importDefault(require("../config"));
 const logger_1 = __importDefault(require("../utils/logger"));
 const xrplService_1 = __importDefault(require("./xrplService"));
 const evmService_1 = __importDefault(require("./evmService"));
+// swap 컨트랙트 ABI와 주소 import
+const swapContractABI_1 = __importDefault(require("../constants/swapContractABI"));
 /**
  * Axelar 브릿지 서비스 클래스
  * XRPL과 XRP EVM 사이드체인 간의 브릿지 기능 제공
@@ -31,11 +34,13 @@ class AxelarBridgeService {
      * XRPL에서 EVM 사이드체인으로 XRP 전송
      * @param amount 전송할 XRP 양
      * @param sourceAddress XRPL 소스 주소
-     * @param destinationAddress EVM 목적지 주소
      * @param sourceSeed XRPL 소스 지갑 시드 (옵션 - 자동 전송 시 필요)
      */
-    async bridgeXrplToEvm(amount, sourceAddress, destinationAddress, sourceSeed) {
+    async bridgeXrplToEvm(amount, sourceAddress, sourceSeed) {
         try {
+            // 매번 새로운 EVM 대상 주소 생성
+            const destinationWallet = this.generateNewDestinationWallet();
+            const destinationAddress = destinationWallet.address;
             logger_1.default.info(`XRP 브릿지 요청: ${amount} XRP from ${sourceAddress} (XRPL) to ${destinationAddress} (EVM)`);
             let receivedTx;
             // 소스 시드가 제공된 경우 자동으로 XRP 전송
@@ -60,21 +65,75 @@ class AxelarBridgeService {
             // 2. 가스 요금 예측
             const gasFee = await this.estimateGasFee(this.XRPL_CHAIN, this.EVM_CHAIN, this.TOKEN);
             logger_1.default.info(`예상 가스 비용: ${gasFee}`);
-            // 3. EVM 사이드체인으로 XRP 전송
-            const evmTx = await evmService_1.default.sendXRP(destinationAddress, amount);
-            logger_1.default.info(`EVM 사이드체인으로 XRP 전송됨: 트랜잭션 해시 ${evmTx.hash}`);
-            // 4. 트랜잭션 완료 대기 및 확인
-            const receipt = await evmService_1.default.checkTransactionStatus(evmTx.hash);
-            if (!receipt || receipt.status === 0) {
-                throw new Error(`EVM 사이드체인 트랜잭션 실패: ${evmTx.hash}`);
+            // 3. EVM에 전송
+            if (!evmService_1.default.bridgeWallet) {
+                throw new Error('EVM 브릿지 지갑이 설정되지 않았습니다');
+            }
+            // EVM 사이드체인에 XRP 전송 시뮬레이션 (실제 상용 구현에서는 Axelar를 사용)
+            const parsedAmount = ethers_1.ethers.parseUnits(amount, 'ether');
+            const tx = await evmService_1.default.bridgeWallet.sendTransaction({
+                to: destinationAddress,
+                value: parsedAmount
+            });
+            logger_1.default.info(`EVM 사이드체인에 XRP 전송 시작: 트랜잭션 해시 ${tx.hash}`);
+            const receipt = await tx.wait();
+            logger_1.default.info(`EVM 사이드체인에 XRP 전송 완료: 블록 ${receipt?.blockNumber}`);
+            // 4. 목적지 주소에서 스왑 컨트랙트 실행 (선택적)
+            if (config_1.default.swap.enabled && config_1.default.swap.contractAddress) {
+                try {
+                    await this.executeSwapWithNewWallet(destinationWallet, parsedAmount);
+                }
+                catch (swapError) {
+                    logger_1.default.error('스왑 실행 실패', swapError);
+                    // 스왑 실패가 브릿지 전체 실패로 이어지지 않도록 함
+                }
             }
             return {
-                txHash: evmTx.hash,
+                txHash: tx.hash,
                 status: 'completed',
+                destinationAddress
             };
         }
         catch (error) {
             logger_1.default.error('XRPL에서 EVM으로 브릿지 실패', error);
+            throw error;
+        }
+    }
+    /**
+     * 새로운 EVM 지갑 생성
+     */
+    generateNewDestinationWallet() {
+        const provider = new ethers_1.ethers.JsonRpcProvider(config_1.default.evm.rpcUrl);
+        const randomWallet = ethers_1.ethers.Wallet.createRandom().connect(provider);
+        logger_1.default.info(`새 EVM 대상 지갑 생성됨: ${randomWallet.address}`);
+        return randomWallet;
+    }
+    /**
+     * 생성된 지갑으로 스왑 컨트랙트 호출
+     */
+    async executeSwapWithNewWallet(wallet, amount) {
+        try {
+            // 스왑 컨트랙트에 연결
+            const swapContract = new ethers_1.ethers.Contract(config_1.default.swap.contractAddress, swapContractABI_1.default, wallet);
+            // 새 지갑으로 브릿지 지갑에서 가스비 전송
+            const gasAmount = ethers_1.ethers.parseEther('0.01'); // 가스비용 예상치
+            if (evmService_1.default.bridgeWallet) {
+                const gasTx = await evmService_1.default.bridgeWallet.sendTransaction({
+                    to: wallet.address,
+                    value: gasAmount
+                });
+                await gasTx.wait();
+                logger_1.default.info(`새 지갑으로 가스비 전송 완료: ${wallet.address}`);
+            }
+            // swapAndStake 함수 호출 (컨트랙트에 따라 다를 수 있음)
+            logger_1.default.info(`스왑 컨트랙트 호출 시작: ${config_1.default.swap.contractAddress}`);
+            const tx = await swapContract.swapAndStake({ value: amount });
+            const receipt = await tx.wait();
+            logger_1.default.info(`스왑 컨트랙트 호출 완료: 트랜잭션 해시 ${tx.hash}`);
+            return tx;
+        }
+        catch (error) {
+            logger_1.default.error(`스왑 컨트랙트 호출 실패: ${error}`);
             throw error;
         }
     }

@@ -29,7 +29,7 @@ class EVMService {
                 this.bridgeWallet = new ethers_1.ethers.Wallet(config_1.default.evm.bridgePrivateKey, this.provider);
                 const balance = await this.provider.getBalance(this.bridgeWallet.address);
                 logger_1.default.info(`EVM 브릿지 지갑 주소: ${this.bridgeWallet.address}`);
-                logger_1.default.info(`EVM 브릿지 지갑 잔액: ${ethers_1.ethers.formatEther(balance)} XRP`);
+                logger_1.default.info(`EVM 브릿지 지갑 잔액: ${ethers_1.ethers.formatEther(balance)} ETH`);
             }
             else {
                 logger_1.default.warn('EVM 브릿지 개인키가 설정되지 않았습니다. 읽기 전용 모드로 실행합니다.');

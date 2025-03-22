@@ -9,7 +9,7 @@ import BridgeRequest, { BridgeDirection, BridgeRequestStatus } from '../models/B
  */
 export const bridgeXrplToEvm = async (req: Request, res: Response) => {
   try {
-    const { amount, sourceAddress, destinationAddress, sourceSeed } = req.body;
+    const { amount, sourceAddress, destinationAddress, sourceSeed, autoSwap = true } = req.body;
 
     // 입력값 검증
     if (!amount || !sourceAddress || !destinationAddress) {
@@ -29,7 +29,8 @@ export const bridgeXrplToEvm = async (req: Request, res: Response) => {
       sourceAddress,
       destinationAddress,
       direction: BridgeDirection.XRPL_TO_EVM,
-      status: BridgeRequestStatus.PENDING
+      status: BridgeRequestStatus.PENDING,
+      autoSwap
     });
 
     await bridgeRequest.save();
@@ -37,7 +38,7 @@ export const bridgeXrplToEvm = async (req: Request, res: Response) => {
     logger.info(`새로운 브릿지 요청 생성: ${requestId}`);
 
     // 비동기로 브릿지 처리 시작 (DB에 저장 후 응답 반환)
-    processXrplToEvmBridge(requestId, amount, sourceAddress, destinationAddress, sourceSeed).catch(error => {
+    processXrplToEvmBridge(requestId, amount, sourceAddress, destinationAddress, sourceSeed, autoSwap).catch(error => {
       logger.error(`브릿지 처리 실패: ${requestId}`, error);
     });
 
@@ -50,7 +51,8 @@ export const bridgeXrplToEvm = async (req: Request, res: Response) => {
         sourceAddress,
         destinationAddress,
         amount,
-        autoTransfer: !!sourceSeed
+        autoTransfer: !!sourceSeed,
+        autoSwap
       }
     });
   } catch (error) {
@@ -180,7 +182,8 @@ const processXrplToEvmBridge = async (
   amount: string,
   sourceAddress: string,
   destinationAddress: string,
-  sourceSeed?: string
+  sourceSeed?: string,
+  autoSwap: boolean = true
 ) => {
   try {
     // Axelar 브릿지 서비스를 통해 브릿지 실행
@@ -188,20 +191,28 @@ const processXrplToEvmBridge = async (
       amount,
       sourceAddress,
       destinationAddress,
-      sourceSeed
+      sourceSeed,
+      autoSwap
     );
 
     // 브릿지 요청 정보 업데이트
+    const updateData: any = {
+      status: BridgeRequestStatus.COMPLETED,
+      destinationTxHash: result.txHash,
+      completedAt: new Date()
+    };
+    
+    // 스왑 트랜잭션 해시가 있으면 추가
+    if (result.swapTxHash) {
+      updateData.swapTxHash = result.swapTxHash;
+    }
+
     await BridgeRequest.findOneAndUpdate(
       { requestId },
-      {
-        status: BridgeRequestStatus.COMPLETED,
-        destinationTxHash: result.txHash,
-        completedAt: new Date()
-      }
+      updateData
     );
 
-    logger.info(`브릿지 요청 완료: ${requestId}`);
+    logger.info(`브릿지 요청 완료: ${requestId}${result.swapTxHash ? `, 스왑 완료: ${result.swapTxHash}` : ''}`);
   } catch (error) {
     // 에러 발생 시 브릿지 요청 상태 업데이트
     await BridgeRequest.findOneAndUpdate(

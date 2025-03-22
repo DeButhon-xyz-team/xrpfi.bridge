@@ -1,123 +1,152 @@
-# XRPL-XRP EVM 사이드체인 브릿지
+# XRP 브릿지 서비스
 
-이 프로젝트는 XRPL(XRP Ledger)과 XRP EVM 사이드체인 간의 XRP 토큰 브릿지 기능을 제공하는 서비스입니다. Axelar Network를 활용하여 크로스체인 자산 전송을 구현합니다.
+XRPL과 XRP EVM 사이드체인 간의 브릿지 서비스입니다.
 
 ## 주요 기능
 
 - XRPL에서 XRP EVM 사이드체인으로 XRP 전송
 - XRP EVM 사이드체인에서 XRPL로 XRP 전송
-- 브릿지 요청 상태 조회 및 추적
+- 브릿지 요청 상태 조회
+- 자동 XRP-BTC 스왑: 브릿지로 전송된 XRP를 BTC로 자동 스왑
 
-## 기술 스택
+## 프로젝트 구조
 
-- **Backend**: Node.js, Express, TypeScript
-- **Blockchain**: xrpl.js (XRPL 연동), ethers.js (EVM 연동)
-- **크로스체인**: Axelar Network SDK
-- **데이터베이스**: MongoDB
-- **기타**: Winston(로깅), UUID(고유 ID 생성)
-
-## 시작하기
-
-### 사전 요구사항
-
-- Node.js v16 이상
-- MongoDB
-- XRPL 지갑 (테스트넷 또는 메인넷)
-- XRP EVM 사이드체인 지갑
-
-### 설치 방법
-
-1. 저장소 클론
 ```
-git clone https://github.com/yourusername/xrpl-bridge.git
-cd xrpl-bridge
+xrpl-bridge/
+├── src/                    # 소스 코드
+│   ├── config/             # 설정 파일
+│   ├── contracts/          # 컨트랙트 ABI
+│   ├── controllers/        # 컨트롤러
+│   ├── middleware/         # 미들웨어
+│   ├── models/             # 데이터 모델
+│   ├── routes/             # API 라우트
+│   ├── services/           # 서비스 로직
+│   │   ├── xrplService.ts  # XRPL 서비스
+│   │   ├── evmService.ts   # EVM 서비스
+│   │   ├── swapService.ts  # 스왑 서비스
+│   │   └── axelarBridgeService.ts # 브릿지 서비스
+│   ├── utils/              # 유틸리티 함수
+│   └── index.ts            # 애플리케이션 엔트리포인트
+├── .env                    # 환경 변수
+├── package.json            # 패키지 정보
+└── tsconfig.json           # TypeScript 설정
 ```
 
-2. 의존성 설치
-```
+## 설치 및 실행
+
+1. 의존성 설치:
+```bash
 npm install
 ```
 
-3. 환경 변수 설정
+2. `.env` 파일 설정:
 ```
-cp .env.example .env
-```
-`.env` 파일을 편집하여 필요한 설정값 입력
+# XRPL 연결 설정
+XRPL_NODE_URL=wss://testnet.xrpl-labs.com
 
-4. 서버 실행
+# XRP EVM 사이드체인 연결 설정
+EVM_SIDECHAIN_RPC_URL=https://rpc-evm-sidechain.xrpl.org
+EVM_CHAIN_ID=1440002
+
+# 브릿지 관리자 지갑 설정
+XRPL_BRIDGE_WALLET_SEED=your_xrpl_wallet_seed
+EVM_BRIDGE_PRIVATE_KEY=your_evm_private_key
+
+# 스왑 컨트랙트 설정
+SWAP_CONTRACT_ADDRESS=your_swap_contract_address
+SWAP_PRIVATE_KEY=your_swap_wallet_private_key
+
+# 기타 설정
+PORT=3000
+NODE_ENV=development
 ```
-npm run dev  # 개발 모드
-npm run build && npm start  # 프로덕션 모드
+
+3. 개발 서버 실행:
+```bash
+npm run dev
+```
+
+4. 프로덕션 빌드:
+```bash
+npm run build
+npm start
 ```
 
 ## API 엔드포인트
 
-### XRPL에서 EVM으로 브릿지
-```
-POST /api/bridge/xrpl-to-evm
+### 브릿지 API
 
-요청 본문:
-{
-  "sourceAddress": "rXRPLAddress...",
-  "destinationAddress": "0xEVMAddress...",
-  "amount": "10.0"
-}
-
-응답:
-{
-  "success": true,
-  "message": "브릿지 요청이 접수되었습니다",
-  "data": {
-    "requestId": "uuid...",
-    "status": "pending",
-    "sourceAddress": "rXRPLAddress...",
-    "destinationAddress": "0xEVMAddress...",
-    "amount": "10.0"
+- `POST /api/bridge/xrpl-to-evm`: XRPL에서 EVM 사이드체인으로 XRP 전송
+  ```json
+  {
+    "sourceAddress": "rXrpAddress...",
+    "destinationAddress": "0xEvmAddress...",
+    "amount": "10",
+    "sourceSeed": "optional_wallet_seed",
+    "autoSwap": true
   }
-}
-```
+  ```
 
-### EVM에서 XRPL로 브릿지
-```
-POST /api/bridge/evm-to-xrpl
+- `POST /api/bridge/evm-to-xrpl`: EVM 사이드체인에서 XRPL로 XRP 전송
+  ```json
+  {
+    "sourceAddress": "0xEvmAddress...",
+    "destinationAddress": "rXrpAddress...",
+    "amount": "10"
+  }
+  ```
 
-요청 본문:
-{
-  "sourceAddress": "0xEVMAddress...",
-  "destinationAddress": "rXRPLAddress...",
-  "amount": "10.0"
-}
-```
+- `GET /api/bridge/status/:txHash`: 브릿지 요청 상태 조회
+  ```
+  /api/bridge/status/0x1234567890ABCDEF?sourceChain=xrpl
+  ```
 
-### 브릿지 상태 조회
-```
-GET /api/bridge/status/:requestId
+## 자동 XRP-BTC 스왑 기능
 
-응답:
+XRP가 XRPL에서 EVM 사이드체인으로 브릿지되면, 자동으로 브릿지된 XRP를 BTC로 스왑할 수 있습니다.
+
+### 스왑 과정
+
+1. 사용자가 XRPL에서 EVM 사이드체인으로 XRP를 전송합니다.
+2. 브릿지 서비스가 전송된 XRP와 동일한 양의 XRP를 EVM 사이드체인에서 목적지 주소로 전송합니다.
+3. 자동 스왑 옵션이 활성화된 경우, 브릿지 서비스는 스왑 컨트랙트를 호출하여 받은 XRP를 BTC로 스왑합니다.
+4. 스왑 결과로 사용자는 BTC(WBTC)를 받게 됩니다.
+
+### 스왑 설정
+
+스왑 기능을 사용하려면 다음 설정이 필요합니다:
+
+1. `.env` 파일에 스왑 컨트랙트 주소와 개인키 설정:
+   ```
+   SWAP_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890
+   SWAP_PRIVATE_KEY=your_private_key
+   ```
+
+2. API 호출 시 `autoSwap` 파라미터를 `true`로 설정 (기본값은 `true`):
+   ```json
+   {
+     "sourceAddress": "rXrpAddress...",
+     "destinationAddress": "0xEvmAddress...",
+     "amount": "10",
+     "autoSwap": true
+   }
+   ```
+
+### 스왑 응답
+
+스왑이 성공적으로 실행되면, 브릿지 API 응답에 스왑 트랜잭션 해시가 포함됩니다:
+
+```json
 {
   "success": true,
   "data": {
-    "requestId": "uuid...",
+    "txHash": "0xBridgeTxHash...",
     "status": "completed",
-    "sourceAddress": "rXRPLAddress...",
-    "destinationAddress": "0xEVMAddress...",
-    "amount": "10.0",
-    "direction": "xrpl_to_evm",
-    "sourceTxHash": "hash...",
-    "destinationTxHash": "hash...",
-    "createdAt": "2023-01-01T00:00:00Z",
-    "completedAt": "2023-01-01T00:01:00Z"
+    "swapTxHash": "0xSwapTxHash..."
   }
 }
 ```
-
-## 브릿지 작동 방식
-
-1. 사용자가 XRPL에서 브릿지 지갑으로 XRP를 보냅니다.
-2. 브릿지 서비스가 이 트랜잭션을 감지합니다.
-3. 브릿지 서비스가 XRP EVM 사이드체인에서 동일한 금액의 XRP를 사용자의 목적지 주소로 전송합니다.
-4. 브릿지 서비스가 트랜잭션 상태를 추적하고 데이터베이스에 기록합니다.
 
 ## 라이센스
 
-MIT 
+[MIT](LICENSE) 

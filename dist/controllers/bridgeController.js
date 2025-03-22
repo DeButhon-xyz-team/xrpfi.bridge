@@ -42,53 +42,49 @@ const logger_1 = __importDefault(require("../utils/logger"));
 const axelarBridgeService_1 = __importDefault(require("../services/axelarBridgeService"));
 const BridgeRequest_1 = __importStar(require("../models/BridgeRequest"));
 /**
- * XRPL에서 EVM 사이드체인으로 브릿지 요청 처리
+ * XRPL에서 EVM 사이드체인으로 브릿지 요청
  */
 const bridgeXrplToEvm = async (req, res) => {
     try {
-        const { amount, sourceAddress, destinationAddress, sourceSeed } = req.body;
-        // 입력값 검증
-        if (!amount || !sourceAddress || !destinationAddress) {
+        const { amount, sourceAddress, sourceSeed } = req.body;
+        // 필수 파라미터 체크
+        if (!amount || !sourceAddress) {
             return res.status(400).json({
                 success: false,
-                message: '필수 입력값이 누락되었습니다 (amount, sourceAddress, destinationAddress)'
+                message: '필수 파라미터가 누락되었습니다: amount, sourceAddress'
             });
         }
-        // 요청 ID 생성
+        // 브릿지 요청 ID 생성
         const requestId = (0, uuid_1.v4)();
-        // DB에 브릿지 요청 저장
+        // 새 브릿지 요청 생성 및 저장
         const bridgeRequest = new BridgeRequest_1.default({
             requestId,
-            amount,
+            userId: req.user?._id || 'anonymous',
+            sourceChain: 'XRPL',
+            destinationChain: 'EVM',
             sourceAddress,
-            destinationAddress,
-            direction: BridgeRequest_1.BridgeDirection.XRPL_TO_EVM,
-            status: BridgeRequest_1.BridgeRequestStatus.PENDING
+            // destinationAddress는 백엔드에서 자동 생성됨
+            amount,
+            status: BridgeRequest_1.BridgeRequestStatus.PENDING,
+            createdAt: new Date()
         });
         await bridgeRequest.save();
-        logger_1.default.info(`새로운 브릿지 요청 생성: ${requestId}`);
-        // 비동기로 브릿지 처리 시작 (DB에 저장 후 응답 반환)
-        processXrplToEvmBridge(requestId, amount, sourceAddress, destinationAddress, sourceSeed).catch(error => {
-            logger_1.default.error(`브릿지 처리 실패: ${requestId}`, error);
+        // 비동기 브릿지 처리 시작
+        processXrplToEvmBridge(requestId, amount, sourceAddress, sourceSeed).catch(error => {
+            logger_1.default.error(`브릿지 요청 처리 실패: ${requestId}`, error);
         });
+        // 즉시 브릿지 요청 ID 응답
         return res.status(201).json({
             success: true,
-            message: '브릿지 요청이 접수되었습니다',
-            data: {
-                requestId,
-                status: BridgeRequest_1.BridgeRequestStatus.PENDING,
-                sourceAddress,
-                destinationAddress,
-                amount,
-                autoTransfer: !!sourceSeed
-            }
+            requestId,
+            message: '브릿지 요청이 시작되었습니다'
         });
     }
     catch (error) {
-        logger_1.default.error('브릿지 요청 처리 실패', error);
+        logger_1.default.error('XRPL에서 EVM으로 브릿지 요청 처리 중 오류 발생', error);
         return res.status(500).json({
             success: false,
-            message: '서버 오류가 발생했습니다',
+            message: '브릿지 요청 처리 중 오류가 발생했습니다',
             error: error.message
         });
     }
@@ -194,14 +190,15 @@ exports.getBridgeStatus = getBridgeStatus;
 /**
  * XRPL에서 EVM 사이드체인으로 브릿지 처리 (비동기)
  */
-const processXrplToEvmBridge = async (requestId, amount, sourceAddress, destinationAddress, sourceSeed) => {
+const processXrplToEvmBridge = async (requestId, amount, sourceAddress, sourceSeed) => {
     try {
         // Axelar 브릿지 서비스를 통해 브릿지 실행
-        const result = await axelarBridgeService_1.default.bridgeXrplToEvm(amount, sourceAddress, destinationAddress, sourceSeed);
+        const result = await axelarBridgeService_1.default.bridgeXrplToEvm(amount, sourceAddress, sourceSeed);
         // 브릿지 요청 정보 업데이트
         await BridgeRequest_1.default.findOneAndUpdate({ requestId }, {
             status: BridgeRequest_1.BridgeRequestStatus.COMPLETED,
             destinationTxHash: result.txHash,
+            destinationAddress: result.destinationAddress,
             completedAt: new Date()
         });
         logger_1.default.info(`브릿지 요청 완료: ${requestId}`);

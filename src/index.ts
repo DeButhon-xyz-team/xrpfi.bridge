@@ -6,6 +6,7 @@ import logger from './utils/logger';
 import bridgeRoutes from './routes/bridgeRoutes';
 import xrplService from './services/xrplService';
 import evmService from './services/evmService';
+import swapService from './services/swapService';
 
 // Express 앱 초기화
 const app = express();
@@ -34,6 +35,20 @@ const startServer = async () => {
     
     // EVM 서비스 초기화
     await evmService.initialize();
+    
+    // 스왑 서비스 초기화 (config.swap.contractAddress가 설정된 경우에만)
+    if (config.swap?.contractAddress) {
+      try {
+        logger.info('스왑 서비스 초기화 시작...');
+        await swapService.initialize();
+        logger.info('스왑 서비스 초기화 완료');
+      } catch (swapError: any) {
+        logger.error(`스왑 서비스 초기화 실패: ${swapError.message}`, swapError);
+        logger.warn('스왑 기능 없이 계속 진행합니다');
+      }
+    } else {
+      logger.info('스왑 컨트랙트 주소가 설정되지 않아 스왑 서비스를 초기화하지 않습니다');
+    }
     
     // Express 서버 시작
     app.listen(config.server.port, () => {

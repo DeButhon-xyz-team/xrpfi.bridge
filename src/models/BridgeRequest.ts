@@ -30,6 +30,8 @@ export interface IBridgeRequest extends Document {
   status: BridgeRequestStatus;
   sourceTxHash: string;
   destinationTxHash: string;
+  swapTxHash?: string;
+  autoSwap?: boolean;
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;
@@ -74,6 +76,15 @@ const BridgeRequestSchema: Schema = new Schema(
     },
     destinationTxHash: {
       type: String,
+      required: false
+    },
+    swapTxHash: {
+      type: String,
+      required: false
+    },
+    autoSwap: {
+      type: Boolean,
+      default: true,
       required: false
     },
     completedAt: {

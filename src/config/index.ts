@@ -32,6 +32,12 @@ const config = {
     gatewayContract: process.env.AXELAR_GATEWAY_CONTRACT || '',
   },
   
+  // 스왑 컨트랙트 설정
+  swap: {
+    contractAddress: process.env.SWAP_CONTRACT_ADDRESS || '',
+    privateKey: process.env.SWAP_PRIVATE_KEY || '',
+  },
+  
   // 데이터베이스 설정
   db: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/xrpl-bridge',
@@ -50,6 +56,14 @@ const validateConfig = () => {
   
   if (!config.axelar.gatewayContract) {
     throw new Error('AXELAR_GATEWAY_CONTRACT 환경 변수가 설정되지 않았습니다');
+  }
+  
+  if (!config.swap.contractAddress) {
+    throw new Error('SWAP_CONTRACT_ADDRESS 환경 변수가 설정되지 않았습니다');
+  }
+  
+  if (!config.swap.privateKey) {
+    throw new Error('SWAP_PRIVATE_KEY 환경 변수가 설정되지 않았습니다');
   }
 };
 
