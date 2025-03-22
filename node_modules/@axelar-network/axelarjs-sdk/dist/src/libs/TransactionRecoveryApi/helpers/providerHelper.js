@@ -1,0 +1,13 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getDefaultProvider = getDefaultProvider;
+const ethers_1 = require("ethers");
+const chain_1 = __importDefault(require("../constants/chain"));
+function getDefaultProvider(chain, environment) {
+    const { networkInfo, rpcMap } = chain_1.default[environment];
+    return new ethers_1.ethers.providers.JsonRpcProvider(rpcMap[chain], networkInfo[chain]);
+}
+//# sourceMappingURL=providerHelper.js.map
